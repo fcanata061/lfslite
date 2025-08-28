@@ -1,0 +1,202 @@
+==============================================
+           GUIA COMPLETO DO LFSLITE
+==============================================
+
+lfslite.sh é um shell script que automatiza a criação
+de um sistema Linux From Scratch simplificado.  
+Ele permite baixar, compilar, instalar e remover pacotes
+a partir de receitas, com suporte a hooks, spinner,
+logs, manifest, DESTDIR/fakeroot, patches e toolchain.
+
+----------------------------------------------
+1. INSTALAÇÃO
+----------------------------------------------
+1. Salve o arquivo "lfslite.sh" em um diretório.
+2. Dê permissão de execução:
+   chmod +x lfslite.sh
+3. Inicialize a estrutura de diretórios:
+   ./lfslite.sh init
+
+----------------------------------------------
+2. ÁRVORE DE DIRETÓRIOS PADRÃO
+----------------------------------------------
+Após rodar "init", a seguinte estrutura será criada:
+
+.
+├── lfslite.sh           -> o script principal
+├── recipes/             -> diretório com receitas
+│   ├── base/            -> pacotes essenciais
+│   ├── extras/          -> extras opcionais
+│   ├── x11/             -> pacotes gráficos/X11
+│   └── desktop/         -> pacotes de desktop
+├── work/                -> fontes extraídos e builds
+├── dist/                -> downloads (tarballs/patches)
+├── build/               -> DESTDIR temporário
+├── var/lfslite/         
+│   ├── db/              -> manifests + metadados
+│   └── logs/            -> logs de compilação/instalação
+└── root/                -> ROOTFS onde os pacotes são instalados
+
+----------------------------------------------
+3. VARIÁVEIS IMPORTANTES
+----------------------------------------------
+Você pode definir no ambiente ou em um arquivo .env:
+
+ROOTFS   = diretório raiz da instalação final (padrão: ./root)
+REPO     = diretório com as receitas (padrão: ./recipes)
+WORK     = área de trabalho temporária
+DIST     = local de downloads
+BUILD    = área DESTDIR para pacotes
+DB       = base de dados de pacotes instalados
+LOGS     = logs de build
+JOBS     = número de jobs em paralelo (make -j)
+FAKEROOT = auto|yes|no -> uso de fakeroot
+COLOR    = auto|always|never -> saída colorida
+SPINNER  = yes|no -> spinner animado
+
+----------------------------------------------
+4. COMANDOS DO LFSLITE
+----------------------------------------------
+./lfslite.sh init                -> cria estrutura inicial
+./lfslite.sh new <nome> [cat]    -> cria receita esqueleto
+./lfslite.sh fetch <receita>     -> baixa fontes
+./lfslite.sh extract <receita>   -> extrai fontes
+./lfslite.sh patch <receita>     -> aplica patches
+./lfslite.sh configure <receita> -> roda configure/cmake/meson
+./lfslite.sh build <receita>     -> compila (sem instalar)
+./lfslite.sh install <receita>   -> compila e instala
+./lfslite.sh remove <receita>    -> remove pacote instalado
+./lfslite.sh info <receita>      -> mostra informações
+./lfslite.sh toolchain init      -> prepara ambiente do toolchain
+./lfslite.sh clean               -> limpa work e build
+
+----------------------------------------------
+5. HOOKS SUPORTADOS
+----------------------------------------------
+Cada receita pode ter scripts em:
+  hooks/pre_configure
+  hooks/configure
+  hooks/pre_install
+  hooks/install
+  hooks/post_install
+  hooks/post_remove
+
+Eles recebem como parâmetros:
+  $WORKDIR $ROOTFS $PKGDEST
+
+----------------------------------------------
+6. COMO CRIAR UMA RECEITA
+----------------------------------------------
+Exemplo de arquivo recipes/base/hello.recipe:
+
+NAME="hello"
+VERSION="2.12"
+URL="https://ftp.gnu.org/gnu/hello/hello-2.12.tar.gz"
+SHA256="6a9fa5d0b2e1f908a3f2b712f852d6732d97869bc1f67ef9b3c5f2dba7d7f29f"
+PATCHES=( )
+BUILD_SYSTEM=autotools
+CONFIG_OPTS=( )
+MAKE_OPTS=( )
+INSTALL_OPTS=( )
+DESTDIR_INSTALL=yes
+# BINARIES=(/usr/bin/hello) -> copiar binários diretamente
+
+----------------------------------------------
+7. RECEITA DEMONSTRANDO TODOS OS RECURSOS
+----------------------------------------------
+Exemplo completo recipes/extras/demo.recipe:
+
+NAME="demo"
+VERSION="1.0"
+URL="https://example.com/demo-1.0.tar.xz"
+SHA256="abcdef1234567890..."
+PATCHES=( https://example.com/fix1.patch ./localfix.patch )
+BUILD_SYSTEM=cmake
+CONFIG_OPTS=( -DENABLE_FEATURE=ON -DCMAKE_BUILD_TYPE=Release )
+MAKE_OPTS=( VERBOSE=1 )
+INSTALL_OPTS=( install-strip )
+DESTDIR_INSTALL=yes
+BINARIES=(/usr/bin/demo /usr/share/demo/data.txt)
+
+----------------------------------------------
+8. TOOLCHAIN COM LFSLITE
+----------------------------------------------
+O processo de bootstrap segue a ordem:
+
+1. Binutils (fase 1)
+   ./lfslite.sh install recipes/base/binutils-toolchain.recipe
+
+2. GCC (fase 1 - sem libc)
+   ./lfslite.sh install recipes/base/gcc-toolchain.recipe
+
+3. Headers do kernel
+   ./lfslite.sh install recipes/base/linux-headers.recipe
+
+4. Glibc (usando gcc mínimo)
+   ./lfslite.sh install recipes/base/glibc-toolchain.recipe
+
+5. Binutils (fase 2 - rebuild)
+   ./lfslite.sh install recipes/base/binutils.recipe
+
+6. GCC (fase 2 - completo)
+   ./lfslite.sh install recipes/base/gcc.recipe
+
+----------------------------------------------
+9. RECEITAS DE TOOLCHAIN (EXEMPLOS)
+----------------------------------------------
+
+# Binutils toolchain
+NAME="binutils-toolchain"
+VERSION="2.42"
+URL="https://ftp.gnu.org/gnu/binutils/binutils-${VERSION}.tar.xz"
+BUILD_SYSTEM=autotools
+CONFIG_OPTS=( --target="$LFS_TGT" --prefix=/tools --with-sysroot="$ROOTFS" --disable-nls --disable-werror )
+DESTDIR_INSTALL=no
+
+# GCC toolchain
+NAME="gcc-toolchain"
+VERSION="13.2.0"
+URL="https://ftp.gnu.org/gnu/gcc/gcc-${VERSION}/gcc-${VERSION}.tar.xz"
+BUILD_SYSTEM=autotools
+CONFIG_OPTS=( --target="$LFS_TGT" --prefix=/tools --without-headers --disable-nls --disable-shared --enable-languages=c )
+MAKE_OPTS=( all-gcc all-target-libgcc )
+INSTALL_OPTS=( install-gcc install-target-libgcc )
+DESTDIR_INSTALL=no
+
+# Linux headers
+NAME="linux-headers"
+VERSION="6.10.9"
+URL="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${VERSION}.tar.xz"
+BUILD_SYSTEM=make
+MAKE_OPTS=( headers )
+INSTALL_OPTS=( headers_install INSTALL_HDR_PATH="$PKGDEST/usr" )
+DESTDIR_INSTALL=yes
+
+# Glibc toolchain
+NAME="glibc-toolchain"
+VERSION="2.39"
+URL="https://ftp.gnu.org/gnu/libc/glibc-${VERSION}.tar.xz"
+BUILD_SYSTEM=autotools
+CONFIG_OPTS=( --prefix=/usr --host="$LFS_TGT" --build="$(../scripts/config.guess)" --enable-kernel=4.14 --with-headers="$ROOTFS/usr/include" libc_cv_slibdir=/usr/lib )
+DESTDIR_INSTALL=yes
+
+----------------------------------------------
+10. LOGS E MANIFEST
+----------------------------------------------
+- Todos os builds têm logs em var/lfslite/logs/
+- Cada pacote instalado gera:
+  - manifest em var/lfslite/db/<nome>.manifest
+  - meta em var/lfslite/db/<nome>.meta
+- A remoção usa o manifest para deletar arquivos.
+
+----------------------------------------------
+11. DICAS
+----------------------------------------------
+- Use .env para configurar ROOTFS, REPO, etc.
+- Use ./lfslite.sh info <receita> para verificar pacotes.
+- Sempre siga a ordem correta no toolchain.
+- Use ./lfslite.sh clean para limpar work/build.
+
+==============================================
+FIM DO GUIA
+==============================================
