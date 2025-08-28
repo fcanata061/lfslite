@@ -1,0 +1,2 @@
+# lfslite
+Gerenciador de programas 
